@@ -126,6 +126,3 @@ The workflow in `.github/workflows/` runs on every push and pull request to `mai
 - Support for loading and saving user-provided images from the command line
 - Cross-platform CI (Linux)
 
-## License
-
-Add a license of your choice (for example MIT) and reference it here.
