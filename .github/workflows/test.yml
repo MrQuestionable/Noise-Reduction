@@ -1,0 +1,58 @@
+name: Windows C++ CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  build-and-test:
+    runs-on: windows-2022
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Cache OpenCV
+      id: cache-opencv
+      uses: actions/cache@v4
+      with:
+        path: C:\opencv
+        key: ${{ runner.os }}-opencv-4.12.0
+
+    - name: Download and Extract OpenCV
+      if: steps.cache-opencv.outputs.cache-hit != 'true'
+      shell: pwsh
+      run: |
+        $opencv_url = "https://github.com/opencv/opencv/releases/download/4.12.0/opencv-4.12.0-windows.exe"
+        $download_path = "C:\opencv_installer.exe"
+        Invoke-WebRequest -Uri $opencv_url -OutFile $download_path
+        Start-Process -FilePath $download_path -ArgumentList "-oC:\ -y" -Wait -NoNewWindow
+
+    - name: Verify OpenCV
+      shell: pwsh
+      run: Get-ChildItem C:\opencv\build\x64\vc16\lib\OpenCVConfig.cmake
+
+    - name: Configure CMake
+      run: >
+        cmake -B build
+        -G "Visual Studio 17 2022"
+        -A x64
+        -DOpenCV_DIR="C:/opencv/build/x64/vc16/lib"
+
+    - name: Build Project & Tests
+      run: cmake --build build --config Release
+
+    - name: Run Google Tests
+      working-directory: ${{ github.workspace }}/build
+      shell: pwsh
+      run: |
+        $env:PATH = "C:\opencv\build\x64\vc16\bin;$env:PATH"
+        ctest -C Release --output-on-failure
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: NoiseReductionEngine-Windows
+        path: build/Release/noise_reduction.exe

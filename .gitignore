@@ -1,0 +1,20 @@
+# Visual Studio internal cache and state
+.vs/
+*.vsidx
+*.suo
+*.user
+
+# Build outputs
+build/
+out/
+bin/
+lib/
+CMakeFiles/
+CMakeCache.txt
+
+# Artifacts
+*.exe
+*.dll
+*.obj
+*.pdb
+*.ilk
