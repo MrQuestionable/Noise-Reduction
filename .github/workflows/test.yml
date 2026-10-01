@@ -34,6 +34,10 @@ jobs:
       shell: pwsh
       run: Get-ChildItem C:\opencv\build\x64\vc16\lib\OpenCVConfig.cmake
 
+    - name: Add OpenCV to PATH
+      shell: pwsh
+      run: echo "C:\opencv\build\x64\vc16\bin" >> $env:GITHUB_PATH
+
     - name: Configure CMake
       run: >
         cmake -B build
