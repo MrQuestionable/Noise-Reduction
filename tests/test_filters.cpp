@@ -48,17 +48,30 @@ TEST_F(FilterTest, SSIMIsWithinValidRange) {
 TEST(FilterTest, AIDenoiserOutperformsBilateralOnRealNoise) {
     SpatialFilter filter;
 
-    // Load real noisy and clean images using relative paths for CI
-    cv::Mat realNoisyImage = cv::imread("../training/data/sidd/noisy/photo1.png");
-    cv::Mat realCleanImage = cv::imread("../training/data/sidd/clean/photo1.png");
+    // 1. Try local path structure (Updated to .jpg)
+    std::string noisyPath = "../training/data/sidd/noisy/photo1.jpg";
+    std::string cleanPath = "../training/data/sidd/clean/photo1.jpg";
+    std::string modelPath = "../models/dncnn_sidd_final.onnx";
 
-    ASSERT_FALSE(realNoisyImage.empty()) << "Failed to load SIDD noisy sample";
-    ASSERT_FALSE(realCleanImage.empty()) << "Failed to load SIDD clean sample";
+    cv::Mat realNoisyImage = cv::imread(noisyPath);
 
-    // Apply filters
+    // 2. If it fails, fallback to the nested GitHub Actions CI path
+    if (realNoisyImage.empty()) {
+        noisyPath = "../../training/data/sidd/noisy/photo1.jpg";
+        cleanPath = "../../training/data/sidd/clean/photo1.jpg";
+        modelPath = "../../models/dncnn_sidd_final.onnx";
+
+        realNoisyImage = cv::imread(noisyPath);
+    }
+
+    cv::Mat realCleanImage = cv::imread(cleanPath);
+
+    ASSERT_FALSE(realNoisyImage.empty()) << "Failed to load noisy sample from: " << noisyPath;
+    ASSERT_FALSE(realCleanImage.empty()) << "Failed to load clean sample from: " << cleanPath;
+
+    // Apply filters using the dynamic model path
     cv::Mat bilateral = filter.applyBilateralFilter(realNoisyImage, 9, 75.0, 75.0);
-    // Use the relative path and correct model name
-    cv::Mat aiDenoised = filter.applyAIDenoiser(realNoisyImage, "../models/dncnn_sidd_final.onnx");
+    cv::Mat aiDenoised = filter.applyAIDenoiser(realNoisyImage, modelPath);
 
     // Calculate metrics
     double bPSNR = filter.calculatePSNR(realCleanImage, bilateral);
