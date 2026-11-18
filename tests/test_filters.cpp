@@ -49,16 +49,16 @@ TEST_F(FilterTest, AIDenoiserOutperformsBilateralOnRealNoise) {
     // Remove the local 'SpatialFilter filter;' line if your fixture already provides it!
 
     // 1. Try local path structure 
-    std::string noisyPath = "../training/data/sidd/noisy/photo1.jpg";
-    std::string cleanPath = "../training/data/sidd/clean/photo1.jpg";
+    std::string noisyPath = "../training/data/sidd/noisy/photo1.jpeg";
+    std::string cleanPath = "../training/data/sidd/clean/photo1.jpeg";
     std::string modelPath = "../models/dncnn_sidd_final.onnx";
 
     cv::Mat realNoisyImage = cv::imread(noisyPath);
 
     // 2. If it fails, fallback to the nested GitHub Actions CI path
     if (realNoisyImage.empty()) {
-        noisyPath = "../../training/data/sidd/noisy/photo1.jpg";
-        cleanPath = "../../training/data/sidd/clean/photo1.jpg";
+        noisyPath = "../../training/data/sidd/noisy/photo1.jpeg";
+        cleanPath = "../../training/data/sidd/clean/photo1.jpeg";
         modelPath = "../../models/dncnn_sidd_final.onnx";
 
         realNoisyImage = cv::imread(noisyPath);
