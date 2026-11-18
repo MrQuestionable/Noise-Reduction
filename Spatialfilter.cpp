@@ -2,6 +2,7 @@
 #include <iostream>
 #include <cmath>
 #include <algorithm>
+#include <opencv2/dnn.hpp>
 
 SpatialFilter::SpatialFilter() {}
 SpatialFilter::~SpatialFilter() {}
@@ -99,4 +100,35 @@ double SpatialFilter::calculateSSIM(const cv::Mat& original, const cv::Mat& proc
     ssim /= original.channels();
 
     return std::max(0.0, std::min(1.0, ssim));
+}
+cv::Mat SpatialFilter::applyAIDenoiser(const cv::Mat& noisyImage, const std::string& modelPath) {
+    // 1. Load the ONNX model from disk
+    cv::dnn::Net net = cv::dnn::readNetFromONNX(modelPath);
+
+    // 2. Convert standard OpenCV Mat (HWC, BGR, 0-255) to AI Tensor Blob (NCHW, RGB, 0.0-1.0)
+    // The 'true' parameter automatically swaps BGR to RGB for the AI
+    cv::Mat blob = cv::dnn::blobFromImage(noisyImage, 1.0 / 255.0, cv::Size(), cv::Scalar(), true, false);
+
+    // 3. Run the image through the DnCNN
+    net.setInput(blob);
+    cv::Mat outputBlob = net.forward();
+
+    // 4. Convert the AI Tensor output back to a standard OpenCV image
+    std::vector<int> sz = { outputBlob.size[2], outputBlob.size[3] };
+    cv::Mat channels[3];
+    for (int i = 0; i < 3; ++i) {
+        cv::Mat channel(static_cast<int>(sz.size()), sz.data(), CV_32F, (void*)outputBlob.ptr<float>(0, i));
+        channels[i] = channel.clone();
+    }
+
+    cv::Mat cleanFloat, finalCleanRGB, finalCleanBGR;
+    cv::merge(channels, 3, cleanFloat);
+
+    // Convert 0.0-1.0 float back to standard 0-255 pixels
+    cleanFloat.convertTo(finalCleanRGB, CV_8UC3, 255.0);
+
+    // 5. The AI outputs RGB, so we must swap it back to OpenCV's default BGR
+    cv::cvtColor(finalCleanRGB, finalCleanBGR, cv::COLOR_RGB2BGR);
+
+    return finalCleanBGR;
 }

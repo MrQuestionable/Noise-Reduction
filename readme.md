@@ -1,53 +1,139 @@
-# Noise Reduction
+# Noise Reduction Engine
 
 ![Build](https://github.com/<your-username>/Noise-Reduction/actions/workflows/<workflow-file>.yml/badge.svg)
 ![C++17](https://img.shields.io/badge/C%2B%2B-17-blue)
 ![OpenCV](https://img.shields.io/badge/OpenCV-4.12.0-green)
+![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-blue)
+![PyTorch](https://img.shields.io/badge/PyTorch-CUDA_12.1-red)
+![ONNX](https://img.shields.io/badge/Model-ONNX-lightgrey)
 ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)
 
-A C++ image noise reduction project built on OpenCV. It simulates sensor noise, applies spatial filters to remove it, and measures the quality of the result with objective metrics (PSNR and SSIM). The metrics are verified by an automated Google Test suite that runs on every push through GitHub Actions.
+**Classical filters vs. a deep learning denoiser, measured side by side.**
+
+A hybrid C++ and Python image denoising project. It degrades a clean image with synthetic sensor noise, restores it with three different methods (Gaussian, Bilateral and a DnCNN neural network), then scores each result with objective quality metrics (PSNR and SSIM) and per-method latency telemetry. The DnCNN model is trained in PyTorch on real smartphone noise, exported to ONNX, and run natively inside the C++ engine through OpenCV's DNN module. The classical filters and metrics are covered by a Google Test suite that runs on every push through GitHub Actions.
+
+## Table of Contents
+
+- [Quick Start](#quick-start)
+- [Features](#features)
+- [Architecture & Workflow](#architecture--workflow)
+- [Project Structure](#project-structure)
+- [Machine Learning Pipeline](#machine-learning-pipeline)
+- [C++ API Overview](#c-api-overview)
+- [Performance Profiling](#performance-profiling)
+- [How the Metrics Work](#how-the-metrics-work)
+- [Requirements](#requirements)
+- [Building & Running](#building--running)
+- [Running the Tests](#running-the-tests)
+- [Continuous Integration](#continuous-integration)
+- [Limitations](#limitations)
+- [Roadmap](#roadmap)
+
+## Quick Start
+
+```bash
+# 1. Build (OpenCV 4.12.0 must be installed, see Requirements)
+cmake -B build -G Ninja -DOpenCV_DIR="C:/opt/opencv/build/x64/vc16/lib"
+cmake --build build --config Release
+
+# 2. Make sure models/dncnn_sidd_final.onnx exists (see Machine Learning Pipeline)
+
+# 3. Run the full benchmark
+./build/noise_reduction.exe
+```
+
+The program prints PSNR, SSIM and latency for every method and saves each result image to `out/`.
 
 ## Features
 
-- **Synthetic noise generation:** adds zero-mean Gaussian noise to simulate sensor read noise. The noise is generated in floating point and saturated back to 8-bit, so it is not clipped asymmetrically.
-- **Gaussian filter:** a standard Gaussian blur. It smooths noise effectively but also softens edges.
-- **Bilateral filter:** an edge-preserving filter that weighs both spatial distance and intensity difference.
-- **Quality metrics:**
-  - **PSNR** (Peak Signal-to-Noise Ratio, in dB): higher means closer to the original.
-  - **SSIM** (Structural Similarity Index, 0 to 1): measures preservation of structure, where 1 is identical.
-- **Automated testing:** Google Test cases that check the filters and metrics, with a fixed random seed so results are reproducible.
-- **CI/CD:** a GitHub Actions pipeline that builds the project, runs the tests, and uploads the executable as an artifact.
+- **Classical spatial filtering:** Gaussian blur and edge-preserving Bilateral filtering, the two standard baselines for noise reduction.
+- **AI denoising (DnCNN):** a convolutional neural network trained in PyTorch on the Smartphone Image Denoising Dataset (SIDD) and exported as an ONNX artifact.
+- **Native C++ inference:** OpenCV's Deep Neural Network (DNN) module loads the ONNX model and runs inference directly in the C++ runtime, with automated NCHW tensor conversion and RGB/BGR color space mapping.
+- **Latency profiling:** a built-in benchmark captures millisecond-level execution time for each classical and AI path.
+- **Synthetic noise generation:** zero-mean Gaussian noise generated in floating point, then saturated back to 8-bit, which avoids asymmetric clipping.
+- **Objective quality metrics:** PSNR (Peak Signal-to-Noise Ratio) and SSIM (Structural Similarity Index) quantify how well each method recovers the clean image.
+- **Automated testing and CI:** Google Test cases with a fixed random seed for deterministic results, executed by GitHub Actions on every push.
+
+## Architecture & Workflow
+
+```text
+                                     ┌──► Gaussian Filter ───┐
+Clean Image ──► Add Gaussian Noise ──┼──► Bilateral Filter ──┼──► PSNR / SSIM + Latency ──► out/
+                                     └──► DnCNN (ONNX) ──────┘
+```
+
+1. A clean reference image is loaded into memory.
+2. Synthetic Gaussian noise is injected to produce the degraded input.
+3. The degraded image is processed independently by each method.
+4. Each output is scored against the clean reference, timed, and written to disk.
 
 ## Project Structure
 
-```
+```text
 Noise-Reduction/
-├── SpatialFilter.h        # SpatialFilter class declaration
-├── SpatialFilter.cpp      # Noise, filters, PSNR and SSIM implementations
-├── main.cpp               # Application entry point
+├── CMakeLists.txt             # Build configuration
+├── main.cpp                   # Entry point and benchmarking pipeline
+├── SpatialFilter.h            # Engine class declarations
+├── SpatialFilter.cpp          # Filters, ONNX inference and metrics
+├── models/
+│   └── dncnn_sidd_final.onnx  # Exported model used for C++ inference
+├── training/
+│   ├── data/sidd/             # Clean and noisy image pairs
+│   ├── train_dncnn.py         # PyTorch training script and custom dataloader
+│   └── export.py              # Exports trained .pth weights to ONNX
 ├── tests/
-│   └── test_filters.cpp   # Google Test suite
-├── CMakeLists.txt         # Build configuration
-└── .github/workflows/     # GitHub Actions CI pipeline
+│   └── test_filters.cpp       # Google Test suite
+├── out/                       # Result images generated by each run
+└── .github/workflows/         # GitHub Actions CI pipeline
 ```
 
-## API Overview
+## Machine Learning Pipeline
 
-All functionality lives in the `SpatialFilter` class.
+The model is trained in Python, then handed to the C++ engine as a single ONNX file.
+
+```text
+SIDD image pairs ──► train_dncnn.py (PyTorch, CUDA) ──► .pth weights ──► export.py ──► dncnn_sidd_final.onnx ──► models/
+```
+
+### Setup and Training
+
+1. Install **Python 3.11 or 3.12 (64-bit)**. Python 3.13 and newer are not yet supported by the pre-compiled PyTorch wheels.
+2. Create a virtual environment and install the dependencies:
+   ```cmd
+   cd training
+   python -m venv venv
+   venv\Scripts\activate
+   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+   pip install Pillow onnx onnxscript
+   ```
+3. Place matching image pairs (minimum 256x256 resolution) in `training/data/sidd/clean/` and `training/data/sidd/noisy/`.
+4. Run the training script:
+   ```cmd
+   python train_dncnn.py
+   ```
+5. If the training script has not already produced the ONNX file, export the weights with `python export.py`.
+6. Move `dncnn_sidd_final.onnx` into the `models/` directory at the project root so the C++ engine can load it.
+
+## C++ API Overview
+
+All processing logic lives in the `SpatialFilter` class.
 
 ```cpp
-SpatialFilter filter;
+SpatialFilter filterEngine;
 
-// Add Gaussian noise (mean, standard deviation)
-cv::Mat noisy = filter.addGaussianNoise(clean, 0.0, 30.0);
+// Inject synthetic noise (mean, standard deviation)
+cv::Mat noisy = filterEngine.addGaussianNoise(clean, 0.0, 30.0);
 
-// Denoise
-cv::Mat gaussian  = filter.applyGaussianFilter(noisy, 5, 1.5);
-cv::Mat bilateral = filter.applyBilateralFilter(noisy, 9, 200.0, 5.0);
+// Classical denoising
+cv::Mat gaussian  = filterEngine.applyGaussianFilter(noisy, 7, 2.5);
+cv::Mat bilateral = filterEngine.applyBilateralFilter(noisy, 9, 75.0, 75.0);
 
-// Evaluate against the clean reference
-double psnr = filter.calculatePSNR(clean, bilateral);
-double ssim = filter.calculateSSIM(clean, bilateral);
+// AI denoising (DnCNN)
+cv::Mat cleanAI = filterEngine.applyAIDenoiser(noisy, "models/dncnn_sidd_final.onnx");
+
+// Objective evaluation against the clean reference
+double psnr = filterEngine.calculatePSNR(clean, cleanAI);
+double ssim = filterEngine.calculateSSIM(clean, cleanAI);
 ```
 
 | Method | Description |
@@ -55,32 +141,82 @@ double ssim = filter.calculateSSIM(clean, bilateral);
 | `addGaussianNoise(src, mean, stddev)` | Returns a noisy copy of `src` |
 | `applyGaussianFilter(src, kernelSize, sigma)` | Gaussian blur; even kernel sizes are bumped to the next odd value |
 | `applyBilateralFilter(src, diameter, sigmaColor, sigmaSpace)` | Edge-preserving smoothing |
+| `applyAIDenoiser(src, modelPath)` | Runs DnCNN inference from an ONNX model through OpenCV DNN |
 | `calculatePSNR(original, processed)` | PSNR in dB |
 | `calculateSSIM(original, processed)` | Mean SSIM, clamped to [0, 1] |
 
 > **Tip:** OpenCV's bilateral filter sums color differences across all channels on color images, so `sigmaColor` usually needs to be set higher for color images than for grayscale ones.
 
+## Performance Profiling
+
+Latency from a single pipeline run on a standard CPU:
+
+| Method | Processing Time | Architecture |
+|---|---|---|
+| Gaussian Filter | 31.85 ms | Classical, CPU |
+| Bilateral Filter | 13.45 ms | Classical, CPU |
+| DnCNN | 6300.45 ms | Deep learning, CPU inference |
+
+On CPU, DnCNN is roughly 200x slower than the Gaussian filter and 470x slower than the Bilateral filter.
+
+**Why the AI path is slow.** The model was trained on a GPU, but the standard pre-built OpenCV package has no CUDA backend, so DNN inference runs entirely on the CPU. The network trades speed for a learned model of the noise, and it needs GPU-backed inference to reach real-time latency. Building OpenCV from source with CUDA and cuDNN, or moving to ONNX Runtime with a GPU provider, is the primary roadmap item.
+
+**Read these numbers as relative, not absolute.** They come from one run, so the first method executed may include warm-up overhead. Averaged, multi-pass benchmarking is on the roadmap.
+
+**Debug vs. Release.** Always benchmark in `Release` mode (`x64-Release` in Visual Studio). `Debug` builds disable compiler optimizations and inflate matrix-math latency considerably.
+
+<!--
+RESULTS (fill in after a benchmark run):
+
+| Method    | PSNR (dB) | SSIM | Time (ms) |
+|-----------|-----------|------|-----------|
+| Noisy     |           |      | n/a       |
+| Gaussian  |           |      | 31.85     |
+| Bilateral |           |      | 13.45     |
+| DnCNN     |           |      | 6300.45   |
+
+Optionally add a side-by-side image: clean | noisy | gaussian | bilateral | dncnn
+-->
+
+## How the Metrics Work
+
+- **PSNR** is computed from the mean squared error between two images: `PSNR = 10 · log10(255² / MSE)`. It is a simple pixel-wise measure, and higher is better.
+- **SSIM** compares local luminance, contrast and structure using an 11×11 Gaussian window (σ = 1.5), averaged across color channels. It ranges from 0 to 1 and tracks perceived quality better than PSNR, especially around edges.
+- **DnCNN** is a residual-learning denoiser: the network predicts the noise component, which is subtracted from the noisy input to estimate the clean image.
+
 ## Requirements
 
-- Windows with Visual Studio 2022 or newer (MSVC)
-- [CMake](https://cmake.org/) 3.14 or newer
-- [OpenCV](https://opencv.org/) 4.12.0 (prebuilt Windows package)
-- Internet access on first configure, because Google Test is fetched automatically with `FetchContent`
+**C++ engine**
 
-## Building
+- Windows with Visual Studio 2022 or newer (MSVC)
+- CMake 3.14 or newer
+- OpenCV 4.12.0 (prebuilt Windows package)
+- Internet access on first configure, because Google Test is fetched with `FetchContent`
+
+**Model training (only needed to retrain the model)**
+
+- Python 3.11 or 3.12 (64-bit)
+- PyTorch with CUDA 12.1 wheels and an NVIDIA GPU with a compatible driver
+- SIDD image pairs, as described in [Machine Learning Pipeline](#machine-learning-pipeline)
+
+## Building & Running
 
 1. Install OpenCV and note its location (for example `C:/opt/opencv`).
-2. Add the OpenCV `bin` folder (for example `C:\opt\opencv\build\x64\vc16\bin`) to your `PATH` so the executables can find the OpenCV DLL at runtime.
-3. Configure and build:
+2. Add the OpenCV `bin` directory (for example `C:\opt\opencv\build\x64\vc16\bin`) to your system `PATH` so the executable can find the OpenCV DLLs at runtime.
+3. Configure and build with CMake:
 
-```bash
-cmake -B build -G Ninja -DOpenCV_DIR="C:/opt/opencv/build/x64/vc16/lib"
-cmake --build build
-```
+   ```bash
+   cmake -B build -G Ninja -DOpenCV_DIR="C:/opt/opencv/build/x64/vc16/lib"
+   cmake --build build --config Release
+   ```
 
-If `OpenCV_DIR` is not passed, `CMakeLists.txt` falls back to a default path for local development. Edit that default to match your install.
+4. Run the pipeline:
 
-You can also open the folder directly in Visual Studio, which handles configuration through CMake.
+   ```bash
+   ./build/noise_reduction.exe
+   ```
+
+Metrics and the latency profile print to the console, and the processed images are saved to `out/`.
 
 ## Running the Tests
 
@@ -89,40 +225,35 @@ cd build
 ctest --output-on-failure
 ```
 
-Or run the test executable directly for more detailed output:
-
-```bash
-./FilterTests.exe
-```
-
-The suite covers three behaviors:
-
 | Test | What it verifies |
 |---|---|
-| `GaussianFilterImprovesPSNR` | Gaussian filtering raises PSNR relative to the noisy image |
-| `BilateralFilterPreservesStructureBetterThanGaussian` | The bilateral filter achieves a higher SSIM than a Gaussian filter on an image with a sharp edge |
-| `SSIMIsWithinValidRange` | SSIM always falls within [0, 1] |
+| `GaussianFilterImprovesPSNR` | Filtering raises PSNR relative to the degraded image |
+| `BilateralFilterPreservesStructureBetterThanGaussian` | The Bilateral filter retains more SSIM than Gaussian on a sharp edge |
+| `SSIMIsWithinValidRange` | SSIM always stays within [0, 1] |
 
-The noise generator uses a fixed seed, so every run produces identical results and the tests are not flaky.
+The noise generator uses a fixed random seed, so test runs are deterministic and not flaky.
 
 ## Continuous Integration
 
-The workflow in `.github/workflows/` runs on every push and pull request to `main` or `master`. It:
+The workflow in `.github/workflows/` runs on every push and pull request to the main branch. It:
 
-1. Checks out the code
-2. Restores OpenCV from cache (or downloads and extracts it)
+1. Checks out the repository
+2. Restores OpenCV from cache
 3. Configures and builds the project with CMake and MSVC in Release mode
 4. Runs the Google Test suite with CTest
-5. Uploads `noise_reduction.exe` as a build artifact
+5. Uploads the compiled executable as a build artifact
 
-## How the Metrics Work
+## Limitations
 
-- **PSNR** is computed from the mean squared error between two images: `PSNR = 10 · log10(255² / MSE)`. It is a simple pixel-wise measure.
-- **SSIM** compares local luminance, contrast and structure using an 11×11 Gaussian window (σ = 1.5), averaged across color channels. It correlates better with perceived quality than PSNR, especially around edges.
+- **Domain mismatch:** the model is trained on real smartphone noise (SIDD), while the benchmark degrades images with synthetic Gaussian noise. Quality scores therefore reflect how well DnCNN generalizes to a different noise type.
+- **Test coverage:** the Google Test suite covers the classical filters and metrics. The AI denoiser is evaluated through the benchmark and is not yet covered by automated tests.
+- **CPU-only inference:** see [Performance Profiling](#performance-profiling).
 
 ## Roadmap
 
-- Median and non-local means filters
-- Support for loading and saving user-provided images from the command line
-- Cross-platform CI (Linux)
-
+- **GPU inference:** build OpenCV with CUDA and cuDNN, or migrate to the ONNX Runtime C++ API with a GPU provider, to remove the CPU bottleneck.
+- **Model optimization:** FP16 and INT8 quantization, plus network pruning, to cut inference time.
+- **Rigorous benchmarking:** warm-up passes and averaged latency across several image resolutions.
+- **AI test coverage:** automated tests for the DnCNN path, such as an output shape check and a PSNR improvement check on a fixed image.
+- **More classical filters:** Median and Non-Local Means for a broader baseline.
+- **Cross-platform support:** extend CI to Linux.

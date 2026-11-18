@@ -45,3 +45,21 @@ TEST_F(FilterTest, SSIMIsWithinValidRange) {
     EXPECT_LE(ssim, 1.0);
 
 }
+TEST_F(FilterTest, AIDenoiserOutperformsBilateralOnRealNoise) {
+    // For this specific test, load a real noisy image from the SIDD dataset
+    cv::Mat realNoisyImage = cv::imread("tests/data/sidd_noisy_sample.png", cv::IMREAD_COLOR);
+    cv::Mat realCleanImage = cv::imread("tests/data/sidd_ground_truth.png", cv::IMREAD_COLOR);
+
+    ASSERT_FALSE(realNoisyImage.empty()) << "Failed to load SIDD noisy sample";
+
+    // Apply filters
+    cv::Mat bilateral = filter.applyBilateralFilter(realNoisyImage, 9, 75.0, 75.0);
+    cv::Mat aiDenoised = filter.applyAIDenoiser(realNoisyImage, "models/dncnn_denoiser.onnx");
+
+    // Calculate metrics
+    double bPSNR = filter.calculatePSNR(realCleanImage, bilateral);
+    double aiPSNR = filter.calculatePSNR(realCleanImage, aiDenoised);
+
+    // The AI model should mathematically reconstruct real sensor noise better than Bilateral
+    EXPECT_GT(aiPSNR, bPSNR);
+}

@@ -41,6 +41,9 @@ public:
     /**
     * Peak Signal-to-Noise Ratio in dB (higher = closer to the original).
     */
+    cv::Mat applyAIDenoiser(const cv::Mat& noisyImage, const std::string& modelPath);
+
+
     double calculatePSNR(const cv::Mat& original, const cv::Mat& processed);
 
     /**
