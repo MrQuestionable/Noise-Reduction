@@ -45,10 +45,10 @@ TEST_F(FilterTest, SSIMIsWithinValidRange) {
     EXPECT_LE(ssim, 1.0);
 
 }
-TEST(FilterTest, AIDenoiserOutperformsBilateralOnRealNoise) {
-    SpatialFilter filter;
+TEST_F(FilterTest, AIDenoiserOutperformsBilateralOnRealNoise) {
+    // Remove the local 'SpatialFilter filter;' line if your fixture already provides it!
 
-    // 1. Try local path structure (Updated to .jpg)
+    // 1. Try local path structure 
     std::string noisyPath = "../training/data/sidd/noisy/photo1.jpg";
     std::string cleanPath = "../training/data/sidd/clean/photo1.jpg";
     std::string modelPath = "../models/dncnn_sidd_final.onnx";
